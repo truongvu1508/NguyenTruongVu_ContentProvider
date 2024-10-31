@@ -1,11 +1,13 @@
 package com.example.btcontentprovidernguyentruongvu;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Telephony;
+import android.util.Log;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.ListView;
@@ -19,12 +21,20 @@ import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.recyclerview.widget.RecyclerView;
+import androidx.recyclerview.widget.LinearLayoutManager;
 
 import java.util.ArrayList;
+import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
-    private static final int PERMISSION_REQUEST_READ_SMS = 100;
-    private ListView listViewMessages;
+    private static final int SMS_PERMISSION_CODE = 1;
+    private static final String TAG = "MainActivity";
+
+    private RecyclerView smsRecyclerView;
+    private SMSAdapter smsAdapter;
+    private List<SMS> smsList;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -35,60 +45,45 @@ public class MainActivity extends AppCompatActivity {
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
             return insets;
         });
-        listViewMessages = findViewById(R.id.listViewMessages);
-        Button btnReadMessages = findViewById(R.id.btnReadMessages);
+        smsRecyclerView = findViewById(R.id.sms_recycler_view);
+        smsRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+        smsList = new ArrayList<>();
+        smsAdapter = new SMSAdapter(smsList);
+        smsRecyclerView.setAdapter(smsAdapter);
 
-        btnReadMessages.setOnClickListener(v -> {
-            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED) {
-                readSmsMessages();
-            } else {
-                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.READ_SMS}, PERMISSION_REQUEST_READ_SMS);
-            }
-        });
+        // Kiểm tra quyền SMS
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.READ_SMS}, SMS_PERMISSION_CODE);
+        } else {
+            readSmsMessages();
+        }
     }
     private void readSmsMessages() {
-        ArrayList<String> messagesList = new ArrayList<>();
-        Uri smsUri = Telephony.Sms.CONTENT_URI;
-        String[] projection = new String[]{
-                Telephony.Sms.ADDRESS,
-                Telephony.Sms.BODY
-        };
+        Uri smsUri = Uri.parse("content://sms/inbox");
+        Cursor cursor = getContentResolver().query(smsUri, null, null, null, null);
 
-        try (Cursor cursor = getContentResolver().query(smsUri, projection, null, null, null)) {
-            if (cursor != null) {
-                if (cursor.getCount() > 0) {
-                    if (cursor.moveToFirst()) {
-                        int addressIndex = cursor.getColumnIndex(Telephony.Sms.ADDRESS);
-                        int bodyIndex = cursor.getColumnIndex(Telephony.Sms.BODY);
-
-                        if (addressIndex != -1 && bodyIndex != -1) {
-                            do {
-                                String address = cursor.getString(addressIndex);
-                                String body = cursor.getString(bodyIndex);
-                                messagesList.add("From: " + address + "\nMessage: " + body);
-                            } while (cursor.moveToNext());
-                        } else {
-                            Toast.makeText(this, "Không tìm thấy các cột cần thiết trong Cursor.", Toast.LENGTH_SHORT).show();
-                        }
-                    }
-                } else {
-                    Toast.makeText(this, "Không có tin nhắn nào.", Toast.LENGTH_SHORT).show();
-                }
-            } else {
-                Toast.makeText(this, "Không thể truy xuất dữ liệu tin nhắn.", Toast.LENGTH_SHORT).show();
+        if (cursor != null) {
+            while (cursor.moveToNext()) {
+                @SuppressLint("Range")
+                String address = cursor.getString(cursor.getColumnIndex("address"));
+                @SuppressLint("Range")
+                String body = cursor.getString(cursor.getColumnIndex("body"));
+                smsList.add(new SMS(address, body));
             }
-        } catch (Exception e) {
-            Toast.makeText(this, "Lỗi: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            cursor.close();
+            smsAdapter.notifyDataSetChanged();
+        } else {
+            Log.d(TAG, "No SMS messages found or cursor is null.");
+            Toast.makeText(this, "No SMS messages found.", Toast.LENGTH_SHORT).show();
         }
-
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, messagesList);
-        listViewMessages.setAdapter(adapter);
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == PERMISSION_REQUEST_READ_SMS) {
+        if (requestCode == SMS_PERMISSION_CODE) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 readSmsMessages();
             } else {
